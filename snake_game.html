@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Beautiful Snake Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Press Start 2P', cursive;
+            background-color: #1a1a1a;
+            background-image: radial-gradient(#333 1px, transparent 0);
+            background-size: 20px 20px;
+            color: #ffffff;
+            overflow: hidden;
+        }
+        canvas {
+            border: 4px solid #555;
+            border-radius: 8px;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.2), inset 0 0 10px rgba(0,0,0,0.5);
+        }
+        .game-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            padding: 1rem;
+            touch-action: none; 
+            transition: filter 0.3s ease-in-out;
+        }
+        .game-container.blur {
+            filter: blur(5px);
+        }
+        .button {
+            background-color: #22c55e; /* green-500 */
+            border: none;
+            color: white;
+            padding: 12px 24px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 16px;
+            margin: 10px 2px;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.2s ease-in-out;
+            font-family: 'Press Start 2P', cursive;
+            box-shadow: 0 4px #15803d; /* green-700 */
+            transform: translateY(0);
+        }
+        .button:hover {
+            background-color: #16a34a; /* green-600 */
+        }
+        .button:active {
+            transform: translateY(2px);
+            box-shadow: 0 2px #15803d;
+        }
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out;
+        }
+        .overlay.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+            20%, 40%, 60%, 80% { transform: translateX(5px); }
+        }
+        .shake {
+            animation: shake 0.5s;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 flex items-center justify-center h-screen">
+
+    <div id="gameWrapper">
+        <div class="game-container">
+            <h1 class="text-4xl mb-2 text-shadow-lg">SNAKE</h1>
+            
+            <!-- Scoreboard Layout Updated -->
+            <div class="flex flex-col items-center w-full max-w-md py-2 mb-2">
+                <div class="text-lg tracking-wider">SCORE: <span id="score" class="font-bold text-green-400">0</span></div>
+                <div class="text-sm tracking-wider mt-1">HIGH SCORE: <span id="highScore" class="font-bold">0</span></div>
+            </div>
+
+            <canvas id="gameCanvas"></canvas>
+
+            <div id="controls" class="mt-4">
+                 <button id="controlButton" class="button">
+                    <span id="controlButtonIcon"></span>
+                    <span id="controlButtonText">Start Game</span>
+                 </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="gameOverOverlay" class="overlay">
+        <h2 class="text-5xl">GAME OVER</h2>
+        <p class="mt-4 text-xl">Your Score: <span id="finalScore">0</span></p>
+        <button id="restartButton" class="button mt-6">Play Again</button>
+    </div>
+    
+    <div id="pauseOverlay" class="overlay">
+        <h2 class="text-5xl">PAUSED</h2>
+    </div>
+
+    <script>
+        // --- Game Setup ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const gameWrapper = document.getElementById('gameWrapper');
+        const gameContainer = document.querySelector('.game-container');
+
+        const scoreEl = document.getElementById('score');
+        const highScoreEl = document.getElementById('highScore');
+        const controlButton = document.getElementById('controlButton');
+        const controlButtonText = document.getElementById('controlButtonText');
+        const controlButtonIcon = document.getElementById('controlButtonIcon');
+        const restartButton = document.getElementById('restartButton');
+        const gameOverOverlay = document.getElementById('gameOverOverlay');
+        const pauseOverlay = document.getElementById('pauseOverlay');
+        const finalScoreEl = document.getElementById('finalScore');
+
+        // Game constants
+        const gridSize = 20;
+        const initialSpeed = 120;
+        const speedIncrement = 5;
+        const maxSpeed = 50;
+
+        // Game state variables
+        let snake, food, dx, dy, score, highScore, gameLoop, changingDirection, isGameOver, isPaused, gameStarted, gameSpeed;
+        let tileCount, canvasSize, foodPulse;
+
+        const playIconSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"></path></svg>`;
+        const pauseIconSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg>`;
+
+        // --- Core Functions ---
+
+        function initializeGame() {
+            const startX = Math.floor(tileCount / 2) * gridSize;
+            const startY = Math.floor(tileCount / 2) * gridSize;
+            snake = [{ x: startX, y: startY }];
+            
+            dx = 0; dy = 0; score = 0; foodPulse = 0;
+            gameSpeed = initialSpeed;
+            scoreEl.textContent = score;
+
+            placeFood();
+
+            isGameOver = false; isPaused = false; gameStarted = false; changingDirection = false;
+            
+            gameOverOverlay.classList.remove('visible');
+            pauseOverlay.classList.remove('visible');
+            gameContainer.classList.remove('blur');
+            gameWrapper.classList.remove('shake');
+            
+            controlButtonText.textContent = "Start Game";
+            controlButtonIcon.innerHTML = playIconSVG;
+            controlButton.onclick = startGame;
+        }
+        
+        function setupCanvas() {
+            const maxWidth = 500;
+            const maxHeight = 500;
+            const size = Math.min(gameContainer.clientWidth * 0.95, gameContainer.clientHeight * 0.65, maxWidth, maxHeight);
+            
+            canvasSize = Math.floor(size / gridSize) * gridSize;
+            tileCount = canvasSize / gridSize;
+
+            canvas.width = canvasSize;
+            canvas.height = canvasSize;
+            
+            highScore = localStorage.getItem('snakeHighScore') || 0;
+            highScoreEl.textContent = highScore;
+
+            initializeGame();
+            draw();
+        }
+
+        function startGame() {
+            if (gameStarted) return;
+            gameStarted = true; isPaused = false;
+            
+            // Don't set initial direction here. Wait for user input.
+            
+            controlButtonText.textContent = "Pause";
+            controlButtonIcon.innerHTML = pauseIconSVG;
+            controlButton.onclick = togglePause;
+
+            if (gameLoop) clearInterval(gameLoop);
+            gameLoop = setInterval(main, gameSpeed);
+        }
+        
+        function togglePause() {
+            if (!gameStarted || isGameOver) return;
+            isPaused = !isPaused;
+            if (isPaused) {
+                pauseOverlay.classList.add('visible');
+                gameContainer.classList.add('blur');
+                controlButtonText.textContent = "Resume";
+                controlButtonIcon.innerHTML = playIconSVG;
+            } else {
+                pauseOverlay.classList.remove('visible');
+                gameContainer.classList.remove('blur');
+                controlButtonText.textContent = "Pause";
+                controlButtonIcon.innerHTML = pauseIconSVG;
+            }
+        }
+
+        function main() {
+            if (isPaused || isGameOver) {
+                if (isGameOver) showGameOver();
+                return;
+            }
+            changingDirection = false;
+            foodPulse += 0.1;
+            draw();
+            moveSnake();
+        }
+        
+        // --- Drawing Functions ---
+
+        function drawGrid() {
+            for (let x = 0; x < tileCount; x++) {
+                for (let y = 0; y < tileCount; y++) {
+                    ctx.fillStyle = (x + y) % 2 === 0 ? '#111' : '#222';
+                    ctx.fillRect(x * gridSize, y * gridSize, gridSize, gridSize);
+                }
+            }
+        }
+
+        function draw() {
+            drawGrid();
+            drawFood();
+            drawSnake();
+        }
+
+        function drawSnake() {
+            snake.forEach((part, index) => {
+                if (index === 0) { // Head
+                    ctx.fillStyle = '#34D399'; // Emerald-400
+                    ctx.fillRect(part.x, part.y, gridSize, gridSize);
+                    
+                    // --- New Eye Logic ---
+                    ctx.fillStyle = 'white';
+                    let eye1X, eye1Y, eye2X, eye2Y;
+                    const eyeRadius = 3.5;
+                    const pupilRadius = 1.5;
+                    
+                    if (dy < 0 || (dx === 0 && dy === 0)) { // Moving Up or Still
+                        eye1X = part.x + gridSize / 4;
+                        eye1Y = part.y + gridSize / 4;
+                        eye2X = part.x + (gridSize * 3) / 4;
+                        eye2Y = part.y + gridSize / 4;
+                    } else if (dy > 0) { // Moving Down
+                        eye1X = part.x + gridSize / 4;
+                        eye1Y = part.y + (gridSize * 3) / 4;
+                        eye2X = part.x + (gridSize * 3) / 4;
+                        eye2Y = part.y + (gridSize * 3) / 4;
+                    } else if (dx < 0) { // Moving Left
+                        eye1X = part.x + gridSize / 4;
+                        eye1Y = part.y + gridSize / 4;
+                        eye2X = part.x + gridSize / 4;
+                        eye2Y = part.y + (gridSize * 3) / 4;
+                    } else if (dx > 0) { // Moving Right
+                        eye1X = part.x + (gridSize * 3) / 4;
+                        eye1Y = part.y + gridSize / 4;
+                        eye2X = part.x + (gridSize * 3) / 4;
+                        eye2Y = part.y + (gridSize * 3) / 4;
+                    }
+
+                    // Draw white part of eyes
+                    ctx.beginPath();
+                    ctx.arc(eye1X, eye1Y, eyeRadius, 0, 2 * Math.PI);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(eye2X, eye2Y, eyeRadius, 0, 2 * Math.PI);
+                    ctx.fill();
+
+                    // Draw pupils
+                    ctx.fillStyle = 'black';
+                    ctx.beginPath();
+                    ctx.arc(eye1X, eye1Y, pupilRadius, 0, 2 * Math.PI);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(eye2X, eye2Y, pupilRadius, 0, 2 * Math.PI);
+                    ctx.fill();
+
+                } else { // Body
+                    const gradient = ctx.createLinearGradient(part.x, part.y, part.x + gridSize, part.y + gridSize);
+                    gradient.addColorStop(0, '#10B981'); // Emerald-500
+                    gradient.addColorStop(1, '#059669'); // Emerald-600
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(part.x, part.y, gridSize, gridSize);
+                }
+            });
+        }
+
+        function drawFood() {
+            const pulseSize = Math.sin(foodPulse) * 2;
+            const size = gridSize - 4 + pulseSize;
+            const x = food.x + (gridSize - size) / 2;
+            const y = food.y + (gridSize - size) / 2;
+
+            // Apple body
+            ctx.fillStyle = 'red';
+            ctx.beginPath();
+            ctx.arc(x + size / 2, y + size / 2, size / 2, 0, 2 * Math.PI);
+            ctx.fill();
+
+            // Shine
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.beginPath();
+            ctx.arc(x + size / 1.5, y + size / 2.5, size / 5, 0, 2 * Math.PI);
+            ctx.fill();
+        }
+
+        // --- Game Logic ---
+
+        function moveSnake() {
+            // Don't move if no direction is set yet
+            if (dx === 0 && dy === 0) return;
+
+            const head = { x: snake[0].x + dx, y: snake[0].y + dy };
+            snake.unshift(head);
+            
+            if (didGameEnd()) {
+                isGameOver = true;
+                return;
+            }
+
+            if (snake[0].x === food.x && snake[0].y === food.y) {
+                score += 10;
+                scoreEl.textContent = score;
+                if (score > highScore) {
+                    highScore = score;
+                    highScoreEl.textContent = highScore;
+                    localStorage.setItem('snakeHighScore', highScore);
+                }
+                
+                if (gameSpeed > maxSpeed) {
+                    gameSpeed -= speedIncrement;
+                    clearInterval(gameLoop);
+                    gameLoop = setInterval(main, gameSpeed);
+                }
+                placeFood();
+            } else {
+                snake.pop();
+            }
+        }
+
+        function placeFood() {
+            while (true) {
+                let foodX = Math.floor(Math.random() * tileCount) * gridSize;
+                let foodY = Math.floor(Math.random() * tileCount) * gridSize;
+                if (!snake.some(part => part.x === foodX && part.y === foodY)) {
+                    food = { x: foodX, y: foodY };
+                    break;
+                }
+            }
+        }
+        
+        function handleInput(newDx, newDy) {
+            if (!gameStarted) startGame();
+            if (changingDirection || isPaused) return;
+
+            const goingUp = dy === -gridSize, goingDown = dy === gridSize;
+            const goingRight = dx === gridSize, goingLeft = dx === -gridSize;
+
+            if (newDx !== 0 && ((newDx === -gridSize && !goingRight) || (newDx === gridSize && !goingLeft))) {
+                changingDirection = true; dx = newDx; dy = 0;
+            } else if (newDy !== 0 && ((newDy === -gridSize && !goingDown) || (newDy === gridSize && !goingUp))) {
+                changingDirection = true; dx = 0; dy = newDy;
+            }
+        }
+
+        function didGameEnd() {
+            for (let i = 4; i < snake.length; i++) {
+                if (snake[i].x === snake[0].x && snake[i].y === snake[0].y) return true;
+            }
+            return snake[0].x < 0 || snake[0].x >= canvas.width || snake[0].y < 0 || snake[0].y >= canvas.height;
+        }
+        
+        function showGameOver() {
+            clearInterval(gameLoop);
+            finalScoreEl.textContent = score;
+            gameOverOverlay.classList.add('visible');
+            gameContainer.classList.add('blur');
+            gameWrapper.classList.add('shake');
+        }
+
+        // --- Event Listeners ---
+        document.addEventListener('keydown', e => {
+            e.preventDefault();
+            if (e.code === 'Space') {
+                togglePause();
+                return;
+            }
+            switch (e.key) {
+                case 'ArrowUp': handleInput(0, -gridSize); break;
+                case 'ArrowDown': handleInput(0, gridSize); break;
+                case 'ArrowLeft': handleInput(-gridSize, 0); break;
+                case 'ArrowRight': handleInput(gridSize, 0); break;
+            }
+        });
+
+        restartButton.addEventListener('click', () => {
+            setupCanvas();
+        });
+        
+        let touchStartX = 0, touchStartY = 0;
+        canvas.addEventListener('touchstart', e => {
+            touchStartX = e.changedTouches[0].screenX;
+            touchStartY = e.changedTouches[0].screenY;
+        }, false);
+
+        canvas.addEventListener('touchend', e => {
+            const deltaX = e.changedTouches[0].screenX - touchStartX;
+            const deltaY = e.changedTouches[0].screenY - touchStartY;
+            if (Math.abs(deltaX) < 30 && Math.abs(deltaY) < 30) return;
+            if (Math.abs(deltaX) > Math.abs(deltaY)) {
+                handleInput(deltaX > 0 ? gridSize : -gridSize, 0);
+            } else {
+                handleInput(0, deltaY > 0 ? gridSize : -gridSize);
+            }
+        }, false);
+        
+        window.addEventListener('resize', setupCanvas);
+        window.onload = setupCanvas;
+    </script>
+</body>
+</html>
